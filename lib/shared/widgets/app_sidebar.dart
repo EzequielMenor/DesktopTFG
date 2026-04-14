@@ -31,6 +31,18 @@ class AppSidebar extends StatelessWidget {
             route: '/users',
             isActive: location == '/users',
           ),
+          _SidebarItem(
+            label: 'Entrenamientos',
+            icon: Icons.fitness_center_outlined,
+            route: '/trainings',
+            isActive: location.startsWith('/trainings'),
+          ),
+          _SidebarItem(
+            label: 'Ejercicios',
+            icon: Icons.sports_gymnastics_outlined,
+            route: '/exercises',
+            isActive: location.startsWith('/exercises'),
+          ),
           const Spacer(),
           _buildFooter(context),
         ],

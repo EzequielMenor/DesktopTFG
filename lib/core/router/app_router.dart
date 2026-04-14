@@ -4,6 +4,12 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/dashboard/screens/dashboard_screen.dart';
+import '../../features/exercises/screens/exercise_detail_screen.dart';
+import '../../features/exercises/screens/exercise_form_screen.dart';
+import '../../features/exercises/screens/exercises_screen.dart';
+import '../../features/trainings/screens/training_detail_screen.dart';
+import '../../features/trainings/screens/training_form_screen.dart';
+import '../../features/trainings/screens/trainings_screen.dart';
 import '../../features/users/screens/users_screen.dart';
 
 /// Returns a [CustomTransitionPage] with a fade transition for desktop
@@ -58,6 +64,61 @@ final GoRouter appRouter = GoRouter(
       path: '/users',
       pageBuilder: (context, state) =>
           _buildPage(state: state, child: const UsersScreen()),
+    ),
+    GoRoute(
+      path: '/trainings',
+      pageBuilder: (context, state) =>
+          _buildPage(state: state, child: const TrainingsScreen()),
+    ),
+    GoRoute(
+      path: '/trainings/:id',
+      pageBuilder: (context, state) {
+        final id = int.parse(state.pathParameters['id']!);
+        return _buildPage(
+          state: state,
+          child: TrainingDetailScreen(workoutId: id),
+        );
+      },
+    ),
+    GoRoute(
+      path: '/trainings/:id/edit',
+      pageBuilder: (context, state) {
+        final id = int.parse(state.pathParameters['id']!);
+        return _buildPage(
+          state: state,
+          child: TrainingFormScreen(workoutId: id),
+        );
+      },
+    ),
+    GoRoute(
+      path: '/exercises',
+      pageBuilder: (context, state) =>
+          _buildPage(state: state, child: const ExercisesScreen()),
+    ),
+    GoRoute(
+      path: '/exercises/new',
+      pageBuilder: (context, state) =>
+          _buildPage(state: state, child: const ExerciseFormScreen()),
+    ),
+    GoRoute(
+      path: '/exercises/:id',
+      pageBuilder: (context, state) {
+        final id = int.parse(state.pathParameters['id']!);
+        return _buildPage(
+          state: state,
+          child: ExerciseDetailScreen(exerciseId: id),
+        );
+      },
+    ),
+    GoRoute(
+      path: '/exercises/:id/edit',
+      pageBuilder: (context, state) {
+        final id = int.parse(state.pathParameters['id']!);
+        return _buildPage(
+          state: state,
+          child: ExerciseFormScreen(exerciseId: id),
+        );
+      },
     ),
   ],
 );

@@ -5,6 +5,8 @@ import 'core/router/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/providers/auth_provider.dart';
 import 'features/dashboard/providers/stats_provider.dart';
+import 'features/exercises/providers/exercises_provider.dart';
+import 'features/trainings/providers/trainings_provider.dart';
 import 'features/users/providers/users_provider.dart';
 
 Future<void> main() async {
@@ -22,6 +24,8 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => StatsProvider()),
         ChangeNotifierProvider(create: (_) => UsersProvider()),
+        ChangeNotifierProvider(create: (_) => TrainingsProvider()),
+        ChangeNotifierProvider(create: (_) => ExercisesProvider()),
       ],
       child: const GymAdminApp(),
     ),
