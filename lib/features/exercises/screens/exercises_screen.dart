@@ -34,7 +34,7 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
       title: 'Ejercicios',
       child: Consumer<ExercisesProvider>(
         builder: (context, provider, _) {
-          if (provider.isLoading) {
+          if (provider.isInitialLoad) {
             return const Center(
               child: CircularProgressIndicator(color: AppTheme.primary),
             );
@@ -55,7 +55,7 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
               Row(
                 children: [
                   Text(
-                    '${provider.filtered.length} ejercicios',
+                    '${provider.filtered.length} ejercicios${provider.hasMore ? " (de ~${provider.exercises.length}+ cargados)" : ""}',
                     style: const TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -110,103 +110,119 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
                   color: AppTheme.surface,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: DataTable(
-                    headingRowColor: WidgetStateProperty.all(
-                      const Color(0xFF2A2A2A),
+                child: Column(
+                  children: [
+                    // Header de columnas
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF2A2A2A),
+                        borderRadius: BorderRadius.only(
+                          topLeft: Radius.circular(12),
+                          topRight: Radius.circular(12),
+                        ),
+                      ),
+                      child: const Row(
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: Text(
+                              'Nombre',
+                              style: TextStyle(
+                                color: AppTheme.textSecondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 2,
+                            child: Text(
+                              'Grupo muscular',
+                              style: TextStyle(
+                                color: AppTheme.textSecondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 2,
+                            child: Text(
+                              'Equipamiento',
+                              style: TextStyle(
+                                color: AppTheme.textSecondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: 140,
+                            child: Text(
+                              'Acciones',
+                              style: TextStyle(
+                                color: AppTheme.textSecondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    dataRowColor: WidgetStateProperty.resolveWith((states) {
-                      if (states.contains(WidgetState.hovered)) {
-                        return AppTheme.primaryOverlay;
-                      }
-                      return AppTheme.surface;
-                    }),
-                    columns: const [
-                      DataColumn(
-                        label: Text(
-                          'Nombre',
-                          style: TextStyle(color: AppTheme.textSecondary),
-                        ),
+                    // Lista con shrinkWrap para evitar altura infinita
+                    ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: provider.filtered.length,
+                      itemBuilder: (context, index) {
+                        final e = provider.filtered[index];
+                        return _ExerciseListTile(
+                          exercise: e,
+                          onDetail: () => context.push('/exercises/${e.id}'),
+                          onEdit: () => context.push('/exercises/${e.id}/edit'),
+                          onDelete: () => _confirmDelete(context, e, provider),
+                        );
+                      },
+                    ),
+                    // Botón "Cargar más"
+                    if (provider.hasMore)
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: provider.isLoading
+                            ? const CircularProgressIndicator(
+                                color: AppTheme.primary,
+                              )
+                            : OutlinedButton.icon(
+                                onPressed: provider.loadMoreExercises,
+                                icon: const Icon(
+                                  Icons.expand_more,
+                                  color: AppTheme.primary,
+                                ),
+                                label: Text(
+                                  'Cargar más (${provider.filtered.length} de ~${provider.exercises.length}+)',
+                                  style: const TextStyle(
+                                    color: AppTheme.primary,
+                                  ),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(
+                                    color: AppTheme.primary,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 24,
+                                    vertical: 12,
+                                  ),
+                                ),
+                              ),
                       ),
-                      DataColumn(
-                        label: Text(
-                          'Grupo muscular',
-                          style: TextStyle(color: AppTheme.textSecondary),
-                        ),
-                      ),
-                      DataColumn(
-                        label: Text(
-                          'Equipamiento',
-                          style: TextStyle(color: AppTheme.textSecondary),
-                        ),
-                      ),
-                      DataColumn(
-                        label: Text(
-                          'Acciones',
-                          style: TextStyle(color: AppTheme.textSecondary),
-                        ),
-                      ),
-                    ],
-                    rows: provider.filtered
-                        .map((e) => _buildRow(context, e, provider))
-                        .toList(),
-                  ),
+                  ],
                 ),
               ),
             ],
           );
         },
       ),
-    );
-  }
-
-  DataRow _buildRow(
-    BuildContext context,
-    AdminExercise e,
-    ExercisesProvider provider,
-  ) {
-    return DataRow(
-      cells: [
-        DataCell(Text(e.name, style: const TextStyle(color: Colors.white))),
-        DataCell(
-          Text(
-            e.muscleGroup ?? '—',
-            style: const TextStyle(color: AppTheme.textSecondary),
-          ),
-        ),
-        DataCell(
-          Text(
-            e.equipment ?? '—',
-            style: const TextStyle(color: AppTheme.textSecondary),
-          ),
-        ),
-        DataCell(
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _ActionButton(
-                icon: Icons.visibility_outlined,
-                tooltip: 'Ver detalle',
-                onTap: () => context.push('/exercises/${e.id}'),
-              ),
-              const SizedBox(width: 4),
-              _ActionButton(
-                icon: Icons.edit_outlined,
-                tooltip: 'Editar',
-                onTap: () => context.push('/exercises/${e.id}/edit'),
-              ),
-              const SizedBox(width: 4),
-              _ActionButton(
-                icon: Icons.delete_outline,
-                tooltip: 'Eliminar',
-                color: AppTheme.error,
-                onTap: () => _confirmDelete(context, e, provider),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 
@@ -326,6 +342,88 @@ class _ActionButton extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(4),
           child: Icon(icon, size: 18, color: color),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Exercise list tile (replaces DataTable rows for virtualization)
+// ---------------------------------------------------------------------------
+
+class _ExerciseListTile extends StatelessWidget {
+  final AdminExercise exercise;
+  final VoidCallback onDetail;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  const _ExerciseListTile({
+    required this.exercise,
+    required this.onDetail,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      hoverColor: AppTheme.primaryOverlay,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: Text(
+                exercise.name,
+                style: const TextStyle(color: Colors.white),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Expanded(
+              flex: 2,
+              child: Text(
+                exercise.muscleGroup ?? '—',
+                style: const TextStyle(color: AppTheme.textSecondary),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Expanded(
+              flex: 2,
+              child: Text(
+                exercise.equipment ?? '—',
+                style: const TextStyle(color: AppTheme.textSecondary),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            SizedBox(
+              width: 140,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _ActionButton(
+                    icon: Icons.visibility_outlined,
+                    tooltip: 'Ver detalle',
+                    onTap: onDetail,
+                  ),
+                  const SizedBox(width: 4),
+                  _ActionButton(
+                    icon: Icons.edit_outlined,
+                    tooltip: 'Editar',
+                    onTap: onEdit,
+                  ),
+                  const SizedBox(width: 4),
+                  _ActionButton(
+                    icon: Icons.delete_outline,
+                    tooltip: 'Eliminar',
+                    color: AppTheme.error,
+                    onTap: onDelete,
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

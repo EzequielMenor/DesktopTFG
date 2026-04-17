@@ -6,25 +6,40 @@ import '../models/admin_workout.dart';
 
 class TrainingsProvider extends ChangeNotifier {
   List<AdminWorkout> _workouts = [];
+  List<AdminWorkout> _allWorkouts = []; // Todos los entrenamientos descargados
   AdminWorkoutDetail? _selectedDetail;
   bool _isLoading = false;
   bool _isDetailLoading = false;
   bool _isSaving = false;
   String? _error;
 
+  // Paginación client-side
+  int _page = 1;
+  static const int _limit = 50;
+  int _totalCount = 0;
+  bool _isInitialLoad = true;
+
   List<AdminWorkout> get workouts => _workouts;
   AdminWorkoutDetail? get selectedDetail => _selectedDetail;
   bool get isLoading => _isLoading;
+  bool get isInitialLoad => _isInitialLoad;
   bool get isDetailLoading => _isDetailLoading;
   bool get isSaving => _isSaving;
   String? get error => _error;
+
+  /// Indica si hay más entrenamientos por cargar.
+  bool get hasMore => _workouts.length < _totalCount;
 
   // ---------------------------------------------------------------------------
   // Load list
   // ---------------------------------------------------------------------------
 
   Future<void> loadWorkouts() async {
+    _page = 1;
+    _workouts = [];
+    _allWorkouts = [];
     _isLoading = true;
+    _isInitialLoad = true;
     _error = null;
     notifyListeners();
 
@@ -32,11 +47,41 @@ class TrainingsProvider extends ChangeNotifier {
       final response = await ApiClient.get('/api/admin/workouts');
       if (response.statusCode == 200) {
         final list = jsonDecode(response.body) as List<dynamic>;
-        _workouts = list
+        _allWorkouts = list
             .map((e) => AdminWorkout.fromJson(e as Map<String, dynamic>))
             .toList();
+
+        _totalCount = _allWorkouts.length;
+        _workouts = _allWorkouts.take(_limit).toList();
+        _page = 1;
       } else {
         _error = 'Error al cargar entrenamientos (${response.statusCode})';
+      }
+    } catch (e) {
+      _error = 'Error de conexión';
+    } finally {
+      _isLoading = false;
+      _isInitialLoad = false;
+      notifyListeners();
+    }
+  }
+
+  /// Carga los siguientes _limit entrenamientos y los appendea a la lista.
+  Future<void> loadMoreWorkouts() async {
+    if (_isLoading || !hasMore) return;
+
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      // Usar los datos ya descargados en _allWorkouts
+      final start = _page * _limit;
+
+      if (start < _allWorkouts.length) {
+        final newItems = _allWorkouts.skip(start).take(_limit).toList();
+        _workouts = [..._workouts, ...newItems];
+        _page++;
       }
     } catch (e) {
       _error = 'Error de conexión';
@@ -124,6 +169,8 @@ class TrainingsProvider extends ChangeNotifier {
       final response = await ApiClient.delete('/api/admin/workouts/$id');
       if (response.statusCode == 204) {
         _workouts.removeWhere((w) => w.id == id);
+        _allWorkouts.removeWhere((w) => w.id == id);
+        _totalCount--;
         notifyListeners();
         return true;
       } else {

@@ -5,11 +5,18 @@ import '../models/admin_exercise.dart';
 
 class ExercisesProvider extends ChangeNotifier {
   List<AdminExercise> _exercises = [];
+  List<AdminExercise> _allExercises = []; // Todos los ejercicios descargados
   AdminExercise? _selectedDetail;
   bool _isLoading = false;
   bool _isDetailLoading = false;
   bool _isSaving = false;
   String? _error;
+
+  // Paginación client-side
+  int _page = 1;
+  static const int _limit = 50;
+  int _totalCount = 0;
+  bool _isInitialLoad = true;
 
   // Filtros client-side
   String _searchQuery = '';
@@ -18,11 +25,15 @@ class ExercisesProvider extends ChangeNotifier {
   List<AdminExercise> get exercises => _exercises;
   AdminExercise? get selectedDetail => _selectedDetail;
   bool get isLoading => _isLoading;
+  bool get isInitialLoad => _isInitialLoad;
   bool get isDetailLoading => _isDetailLoading;
   bool get isSaving => _isSaving;
   String? get error => _error;
   String get searchQuery => _searchQuery;
   String? get muscleGroupFilter => _muscleGroupFilter;
+
+  /// Indica si hay más ejercicios por cargar.
+  bool get hasMore => _exercises.length < _totalCount;
 
   /// Lista filtrada por búsqueda de texto y grupo muscular.
   List<AdminExercise> get filtered {
@@ -71,7 +82,11 @@ class ExercisesProvider extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   Future<void> loadExercises() async {
+    _page = 1;
+    _exercises = [];
+    _allExercises = [];
     _isLoading = true;
+    _isInitialLoad = true;
     _error = null;
     notifyListeners();
 
@@ -79,11 +94,41 @@ class ExercisesProvider extends ChangeNotifier {
       final response = await ApiClient.get('/api/admin/exercises');
       if (response.statusCode == 200) {
         final list = jsonDecode(response.body) as List<dynamic>;
-        _exercises = list
+        _allExercises = list
             .map((e) => AdminExercise.fromJson(e as Map<String, dynamic>))
             .toList();
+
+        _totalCount = _allExercises.length;
+        _exercises = _allExercises.take(_limit).toList();
+        _page = 1;
       } else {
         _error = 'Error al cargar ejercicios (${response.statusCode})';
+      }
+    } catch (e) {
+      _error = 'Error de conexión';
+    } finally {
+      _isLoading = false;
+      _isInitialLoad = false;
+      notifyListeners();
+    }
+  }
+
+  /// Carga los siguientes _limit ejercicios y los appendea a la lista.
+  Future<void> loadMoreExercises() async {
+    if (_isLoading || !hasMore) return;
+
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      // Usar los datos ya descargados en _allExercises
+      final start = _page * _limit;
+
+      if (start < _allExercises.length) {
+        final newItems = _allExercises.skip(start).take(_limit).toList();
+        _exercises = [..._exercises, ...newItems];
+        _page++;
       }
     } catch (e) {
       _error = 'Error de conexión';
@@ -200,6 +245,7 @@ class ExercisesProvider extends ChangeNotifier {
       final response = await ApiClient.delete('/api/admin/exercises/$id');
       if (response.statusCode == 204) {
         _exercises.removeWhere((e) => e.id == id);
+        _totalCount--;
         notifyListeners();
         return true;
       } else {
