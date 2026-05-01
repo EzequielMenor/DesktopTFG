@@ -19,7 +19,8 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => context.read<ExercisesProvider>().loadExercises());
+    final provider = context.read<ExercisesProvider>();
+    Future.microtask(() => provider.loadExercises());
   }
 
   @override

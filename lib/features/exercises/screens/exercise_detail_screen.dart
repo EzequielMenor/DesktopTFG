@@ -20,9 +20,8 @@ class _ExerciseDetailScreenState extends State<ExerciseDetailScreen> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(
-      () => context.read<ExercisesProvider>().loadDetail(widget.exerciseId),
-    );
+    final provider = context.read<ExercisesProvider>();
+    Future.microtask(() => provider.loadDetail(widget.exerciseId));
   }
 
   @override

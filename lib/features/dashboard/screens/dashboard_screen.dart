@@ -15,9 +15,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(
-      () => context.read<StatsProvider>().loadStats(),
-    );
+    final provider = context.read<StatsProvider>();
+    Future.microtask(() => provider.loadStats());
   }
 
   @override

@@ -26,8 +26,8 @@ class _TrainingFormScreenState extends State<TrainingFormScreen> {
   @override
   void initState() {
     super.initState();
+    final provider = context.read<TrainingsProvider>();
     Future.microtask(() async {
-      final provider = context.read<TrainingsProvider>();
       // Si no hay detalle cargado (navegación directa), lo cargamos
       if (provider.selectedDetail == null ||
           provider.selectedDetail!.id != widget.workoutId) {

@@ -24,8 +24,8 @@ class _TrainingDetailScreenState extends State<TrainingDetailScreen> {
   @override
   void initState() {
     super.initState();
+    final provider = context.read<TrainingsProvider>();
     Future.microtask(() async {
-      final provider = context.read<TrainingsProvider>();
       await provider.loadDetail(widget.workoutId);
       await _loadMedia(provider);
     });

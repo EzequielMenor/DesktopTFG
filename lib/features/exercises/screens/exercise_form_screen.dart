@@ -39,13 +39,13 @@ class _ExerciseFormScreenState extends State<ExerciseFormScreen> {
   @override
   void initState() {
     super.initState();
+    final provider = context.read<ExercisesProvider>();
     Future.microtask(() async {
       if (!_isEditing) {
         setState(() => _initialized = true);
         return;
       }
 
-      final provider = context.read<ExercisesProvider>();
       // Cargamos el detalle si no está ya cargado
       if (provider.selectedDetail == null ||
           provider.selectedDetail!.id != widget.exerciseId) {

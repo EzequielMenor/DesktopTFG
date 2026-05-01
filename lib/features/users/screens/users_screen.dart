@@ -17,9 +17,8 @@ class _UsersScreenState extends State<UsersScreen> {
   @override
   void initState() {
     super.initState();
-    Future.microtask(
-      () => context.read<UsersProvider>().loadUsers(),
-    );
+    final provider = context.read<UsersProvider>();
+    Future.microtask(() => provider.loadUsers());
   }
 
   @override
