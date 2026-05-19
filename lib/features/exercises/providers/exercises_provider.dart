@@ -1,39 +1,45 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/network/cancel_token.dart';
 import '../models/admin_exercise.dart';
 
 class ExercisesProvider extends ChangeNotifier {
+  final ApiClient _api;
+  CancelToken? _cancelToken;
+
+  ExercisesProvider({ApiClient? api}) : _api = api ?? HttpApiClient();
+
   List<AdminExercise> _exercises = [];
-  List<AdminExercise> _allExercises = []; // Todos los ejercicios descargados
   AdminExercise? _selectedDetail;
   bool _isLoading = false;
   bool _isDetailLoading = false;
   bool _isSaving = false;
   String? _error;
 
-  // Paginación client-side
-  int _page = 1;
-  static const int _limit = 50;
-  int _totalCount = 0;
-  bool _isInitialLoad = true;
+  // Server-side pagination
+  int _currentPage = 0;
+  static const int _pageSize = 20;
+  int _totalPages = 0;
+  int _totalElements = 0;
+  bool _hasMorePages = true;
+  final Set<int> _cachedIds = {};
 
-  // Filtros client-side
+  // Filtros
   String _searchQuery = '';
   String? _muscleGroupFilter;
 
   List<AdminExercise> get exercises => _exercises;
   AdminExercise? get selectedDetail => _selectedDetail;
   bool get isLoading => _isLoading;
-  bool get isInitialLoad => _isInitialLoad;
   bool get isDetailLoading => _isDetailLoading;
   bool get isSaving => _isSaving;
   String? get error => _error;
   String get searchQuery => _searchQuery;
   String? get muscleGroupFilter => _muscleGroupFilter;
 
-  /// Indica si hay más ejercicios por cargar.
-  bool get hasMore => _exercises.length < _totalCount;
+  bool get hasMore => _hasMorePages;
+  bool get isInitialLoad => _isLoading && _exercises.isEmpty;
 
   /// Lista filtrada por búsqueda de texto y grupo muscular.
   List<AdminExercise> get filtered {
@@ -69,72 +75,97 @@ class ExercisesProvider extends ChangeNotifier {
 
   void setSearch(String q) {
     _searchQuery = q;
-    notifyListeners();
   }
 
   void setMuscleFilter(String? muscle) {
     _muscleGroupFilter = muscle;
-    notifyListeners();
   }
 
   // ---------------------------------------------------------------------------
-  // Load list
+  // Load list with server-side pagination
   // ---------------------------------------------------------------------------
 
   Future<void> loadExercises() async {
-    _page = 1;
+    _cancelToken?.cancel();
+    _cancelToken = CancelToken();
+    final token = _cancelToken!;
+
+    _currentPage = 0;
     _exercises = [];
-    _allExercises = [];
+    _cachedIds.clear();
     _isLoading = true;
-    _isInitialLoad = true;
     _error = null;
     notifyListeners();
 
     try {
-      final response = await ApiClient.get('/api/admin/exercises');
-      if (response.statusCode == 200) {
-        final list = jsonDecode(response.body) as List<dynamic>;
-        _allExercises = list
-            .map((e) => AdminExercise.fromJson(e as Map<String, dynamic>))
-            .toList();
-
-        _totalCount = _allExercises.length;
-        _exercises = _allExercises.take(_limit).toList();
-        _page = 1;
-      } else {
-        _error = 'Error al cargar ejercicios (${response.statusCode})';
-      }
+      await _fetchPage(token);
     } catch (e) {
-      _error = 'Error de conexión';
+      if (e is! RequestCancelledException) {
+        _error = 'Error de conexión';
+      }
     } finally {
       _isLoading = false;
-      _isInitialLoad = false;
       notifyListeners();
     }
   }
 
-  /// Carga los siguientes _limit ejercicios y los appendea a la lista.
+  /// Carga la siguiente página del servidor con filtros.
   Future<void> loadMoreExercises() async {
-    if (_isLoading || !hasMore) return;
+    if (_isLoading || !_hasMorePages) return;
+
+    _cancelToken?.cancel();
+    _cancelToken = CancelToken();
+    final token = _cancelToken!;
 
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      // Usar los datos ya descargados en _allExercises
-      final start = _page * _limit;
-
-      if (start < _allExercises.length) {
-        final newItems = _allExercises.skip(start).take(_limit).toList();
-        _exercises = [..._exercises, ...newItems];
-        _page++;
-      }
+      await _fetchPage(token);
     } catch (e) {
-      _error = 'Error de conexión';
+      if (e is! RequestCancelledException) {
+        _error = 'Error de conexión';
+      }
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  Future<void> _fetchPage(CancelToken token) async {
+    final params = <String, String>{
+      'page': _currentPage.toString(),
+      'size': _pageSize.toString(),
+      if (_searchQuery.isNotEmpty) 'name': _searchQuery,
+      if (_muscleGroupFilter != null) 'muscleGroup': _muscleGroupFilter!,
+    };
+
+    final response = await _api.get(
+      '/api/admin/exercises',
+      queryParams: params,
+      cancelToken: token,
+    );
+
+    if (response.statusCode == 200) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final list = body['content'] as List<dynamic>;
+      final newItems = list
+          .map((e) => AdminExercise.fromJson(e as Map<String, dynamic>))
+          .where((e) => !_cachedIds.contains(e.id))
+          .toList();
+
+      for (final e in newItems) {
+        _cachedIds.add(e.id);
+      }
+      _exercises = [..._exercises, ...newItems];
+
+      _totalPages = body['totalPages'] as int;
+      _totalElements = body['totalElements'] as int;
+      _currentPage++;
+      _hasMorePages = _currentPage < _totalPages;
+    } else {
+      _error = 'Error al cargar ejercicios (${response.statusCode})';
     }
   }
 
@@ -149,7 +180,7 @@ class ExercisesProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final response = await ApiClient.get('/api/admin/exercises/$id');
+      final response = await _api.get('/api/admin/exercises/$id');
       if (response.statusCode == 200) {
         _selectedDetail = AdminExercise.fromJson(
           jsonDecode(response.body) as Map<String, dynamic>,
@@ -169,15 +200,13 @@ class ExercisesProvider extends ChangeNotifier {
   // Create
   // ---------------------------------------------------------------------------
 
-  /// Crea un nuevo ejercicio. Devuelve true si tuvo éxito.
-  /// Devuelve el mensaje de error en [error] si el backend rechaza (ej. 409 nombre duplicado).
   Future<bool> createExercise(Map<String, dynamic> data) async {
     _isSaving = true;
     _error = null;
     notifyListeners();
 
     try {
-      final response = await ApiClient.post('/api/admin/exercises', body: data);
+      final response = await _api.post('/api/admin/exercises', body: data);
       if (response.statusCode == 201) {
         await loadExercises();
         return true;
@@ -201,14 +230,13 @@ class ExercisesProvider extends ChangeNotifier {
   // Update
   // ---------------------------------------------------------------------------
 
-  /// Actualiza un ejercicio existente. Devuelve true si tuvo éxito.
   Future<bool> updateExercise(int id, Map<String, dynamic> data) async {
     _isSaving = true;
     _error = null;
     notifyListeners();
 
     try {
-      final response = await ApiClient.put(
+      final response = await _api.put(
         '/api/admin/exercises/$id',
         body: data,
       );
@@ -235,17 +263,17 @@ class ExercisesProvider extends ChangeNotifier {
   // Delete
   // ---------------------------------------------------------------------------
 
-  /// Elimina un ejercicio. Devuelve true si tuvo éxito.
   Future<bool> deleteExercise(int id) async {
     _isSaving = true;
     _error = null;
     notifyListeners();
 
     try {
-      final response = await ApiClient.delete('/api/admin/exercises/$id');
+      final response = await _api.delete('/api/admin/exercises/$id');
       if (response.statusCode == 204) {
         _exercises.removeWhere((e) => e.id == id);
-        _totalCount--;
+        _cachedIds.remove(id);
+        _totalElements--;
         notifyListeners();
         return true;
       } else {
@@ -259,5 +287,11 @@ class ExercisesProvider extends ChangeNotifier {
       _isSaving = false;
       notifyListeners();
     }
+  }
+
+  @override
+  void dispose() {
+    _cancelToken?.cancel();
+    super.dispose();
   }
 }

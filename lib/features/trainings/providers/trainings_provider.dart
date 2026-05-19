@@ -2,92 +2,120 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/network/cancel_token.dart';
 import '../models/admin_workout.dart';
 
 class TrainingsProvider extends ChangeNotifier {
+  final ApiClient _api;
+  CancelToken? _cancelToken;
+
+  TrainingsProvider({ApiClient? api}) : _api = api ?? HttpApiClient();
+
   List<AdminWorkout> _workouts = [];
-  List<AdminWorkout> _allWorkouts = []; // Todos los entrenamientos descargados
   AdminWorkoutDetail? _selectedDetail;
   bool _isLoading = false;
   bool _isDetailLoading = false;
   bool _isSaving = false;
   String? _error;
 
-  // Paginación client-side
-  int _page = 1;
-  static const int _limit = 50;
-  int _totalCount = 0;
-  bool _isInitialLoad = true;
+  // Server-side pagination
+  int _currentPage = 0;
+  static const int _pageSize = 20;
+  int _totalPages = 0;
+  int _totalElements = 0;
+  bool _hasMorePages = true;
+  final Set<int> _cachedIds = {};
 
   List<AdminWorkout> get workouts => _workouts;
   AdminWorkoutDetail? get selectedDetail => _selectedDetail;
   bool get isLoading => _isLoading;
-  bool get isInitialLoad => _isInitialLoad;
   bool get isDetailLoading => _isDetailLoading;
   bool get isSaving => _isSaving;
   String? get error => _error;
-
-  /// Indica si hay más entrenamientos por cargar.
-  bool get hasMore => _workouts.length < _totalCount;
+  bool get hasMore => _hasMorePages;
+  bool get isInitialLoad => _isLoading && _workouts.isEmpty;
 
   // ---------------------------------------------------------------------------
-  // Load list
+  // Load list with server-side pagination
   // ---------------------------------------------------------------------------
 
   Future<void> loadWorkouts() async {
-    _page = 1;
+    _cancelToken?.cancel();
+    _cancelToken = CancelToken();
+    final token = _cancelToken!;
+
+    _currentPage = 0;
     _workouts = [];
-    _allWorkouts = [];
+    _cachedIds.clear();
     _isLoading = true;
-    _isInitialLoad = true;
     _error = null;
     notifyListeners();
 
     try {
-      final response = await ApiClient.get('/api/admin/workouts');
-      if (response.statusCode == 200) {
-        final list = jsonDecode(response.body) as List<dynamic>;
-        _allWorkouts = list
-            .map((e) => AdminWorkout.fromJson(e as Map<String, dynamic>))
-            .toList();
-
-        _totalCount = _allWorkouts.length;
-        _workouts = _allWorkouts.take(_limit).toList();
-        _page = 1;
-      } else {
-        _error = 'Error al cargar entrenamientos (${response.statusCode})';
-      }
+      await _fetchPage(token);
     } catch (e) {
-      _error = 'Error de conexión';
+      if (e is! RequestCancelledException) {
+        _error = 'Error de conexión';
+      }
     } finally {
       _isLoading = false;
-      _isInitialLoad = false;
       notifyListeners();
     }
   }
 
-  /// Carga los siguientes _limit entrenamientos y los appendea a la lista.
+  /// Carga la siguiente página del servidor.
   Future<void> loadMoreWorkouts() async {
-    if (_isLoading || !hasMore) return;
+    if (_isLoading || !_hasMorePages) return;
+
+    _cancelToken?.cancel();
+    _cancelToken = CancelToken();
+    final token = _cancelToken!;
 
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      // Usar los datos ya descargados en _allWorkouts
-      final start = _page * _limit;
-
-      if (start < _allWorkouts.length) {
-        final newItems = _allWorkouts.skip(start).take(_limit).toList();
-        _workouts = [..._workouts, ...newItems];
-        _page++;
-      }
+      await _fetchPage(token);
     } catch (e) {
-      _error = 'Error de conexión';
+      if (e is! RequestCancelledException) {
+        _error = 'Error de conexión';
+      }
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  Future<void> _fetchPage(CancelToken token) async {
+    final response = await _api.get(
+      '/api/admin/workouts',
+      queryParams: {
+        'page': _currentPage.toString(),
+        'size': _pageSize.toString(),
+      },
+      cancelToken: token,
+    );
+
+    if (response.statusCode == 200) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final list = body['content'] as List<dynamic>;
+      final newItems = list
+          .map((e) => AdminWorkout.fromJson(e as Map<String, dynamic>))
+          .where((w) => !_cachedIds.contains(w.id))
+          .toList();
+
+      for (final w in newItems) {
+        _cachedIds.add(w.id);
+      }
+      _workouts = [..._workouts, ...newItems];
+
+      _totalPages = body['totalPages'] as int;
+      _totalElements = body['totalElements'] as int;
+      _currentPage++;
+      _hasMorePages = _currentPage < _totalPages;
+    } else {
+      _error = 'Error al cargar entrenamientos (${response.statusCode})';
     }
   }
 
@@ -102,7 +130,7 @@ class TrainingsProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final response = await ApiClient.get('/api/admin/workouts/$id');
+      final response = await _api.get('/api/admin/workouts/$id');
       if (response.statusCode == 200) {
         _selectedDetail = AdminWorkoutDetail.fromJson(
           jsonDecode(response.body) as Map<String, dynamic>,
@@ -122,8 +150,6 @@ class TrainingsProvider extends ChangeNotifier {
   // Update workout metadata
   // ---------------------------------------------------------------------------
 
-  /// Actualiza name y/o notes de un entrenamiento.
-  /// Devuelve true si tuvo éxito.
   Future<bool> updateWorkout(int id, {String? name, String? notes}) async {
     _isSaving = true;
     _error = null;
@@ -134,12 +160,11 @@ class TrainingsProvider extends ChangeNotifier {
       if (name != null) body['name'] = name;
       if (notes != null) body['notes'] = notes;
 
-      final response = await ApiClient.put(
+      final response = await _api.put(
         '/api/admin/workouts/$id',
         body: body,
       );
       if (response.statusCode == 200) {
-        // Refresca la lista en background
         await loadWorkouts();
         return true;
       } else {
@@ -159,18 +184,17 @@ class TrainingsProvider extends ChangeNotifier {
   // Delete workout
   // ---------------------------------------------------------------------------
 
-  /// Elimina un entrenamiento. Devuelve true si tuvo éxito.
   Future<bool> deleteWorkout(int id) async {
     _isSaving = true;
     _error = null;
     notifyListeners();
 
     try {
-      final response = await ApiClient.delete('/api/admin/workouts/$id');
+      final response = await _api.delete('/api/admin/workouts/$id');
       if (response.statusCode == 204) {
         _workouts.removeWhere((w) => w.id == id);
-        _allWorkouts.removeWhere((w) => w.id == id);
-        _totalCount--;
+        _cachedIds.remove(id);
+        _totalElements--;
         notifyListeners();
         return true;
       } else {
@@ -192,8 +216,6 @@ class TrainingsProvider extends ChangeNotifier {
 
   static const String _bucket = 'workout-media';
 
-  /// Sube un archivo al bucket de Supabase Storage en la ruta workouts/{id}/{filename}.
-  /// Devuelve la URL pública del archivo, o null si falla.
   Future<String?> uploadMedia(
     int workoutId,
     String filename,
@@ -210,18 +232,15 @@ class TrainingsProvider extends ChangeNotifier {
             fileOptions: FileOptions(contentType: mimeType, upsert: true),
           );
 
-      final url = Supabase.instance.client.storage
+      return Supabase.instance.client.storage
           .from(_bucket)
           .getPublicUrl(path);
-      return url;
     } catch (e) {
       debugPrint('[TrainingsProvider] uploadMedia error: $e');
       return null;
     }
   }
 
-  /// Elimina un archivo del bucket de Supabase Storage.
-  /// Devuelve true si tuvo éxito.
   Future<bool> deleteMedia(int workoutId, String filename) async {
     final path = 'workouts/$workoutId/$filename';
     try {
@@ -233,24 +252,26 @@ class TrainingsProvider extends ChangeNotifier {
     }
   }
 
-  /// Lista los archivos almacenados en Supabase Storage para un workout.
-  /// Devuelve lista de FileObject o lista vacía si falla / no existe.
   Future<List<FileObject>> listMedia(int workoutId) async {
     try {
-      final files = await Supabase.instance.client.storage
+      return await Supabase.instance.client.storage
           .from(_bucket)
           .list(path: 'workouts/$workoutId');
-      return files;
     } catch (e) {
       debugPrint('[TrainingsProvider] listMedia error: $e');
       return [];
     }
   }
 
-  /// Genera la URL pública de un archivo en Supabase Storage.
   String mediaPublicUrl(int workoutId, String filename) {
     return Supabase.instance.client.storage
         .from(_bucket)
         .getPublicUrl('workouts/$workoutId/$filename');
+  }
+
+  @override
+  void dispose() {
+    _cancelToken?.cancel();
+    super.dispose();
   }
 }
